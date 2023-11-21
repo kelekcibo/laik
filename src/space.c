@@ -225,6 +225,20 @@ void laik_range_expand(Laik_Range* dst, Laik_Range* src)
     if (src->to.i[2] > dst->to.i[2]) dst->to.i[2] = src->to.i[2];
 }
 
+// add src to dst
+void laik_range_add(Laik_Range *dst, Laik_Range *src)
+{
+    // an invalid range stays invalid
+    if (dst->space == 0) return;
+
+    assert(src->space == dst->space);
+    int dims = src->space->dims;
+    assert(dims == 1); // supporting only 1D for now
+
+    // add the number of indexes to dst
+    dst->to.i[0] += (src->to.i[0] - src->from.i[0]);
+}
+
 // is range <r1> contained in <r2>?
 bool laik_range_within_range(const Laik_Range* r1, const Laik_Range* r2)
 {

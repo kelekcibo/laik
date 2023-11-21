@@ -181,6 +181,9 @@ Laik_Range* laik_range_intersect(const Laik_Range* r1, const Laik_Range* r2);
 // expand range <dst> such that it contains <src>
 void laik_range_expand(Laik_Range* dst, Laik_Range* src);
 
+// add src to dst
+void laik_range_add(Laik_Range *dst, Laik_Range *src);
+
 // is range <r1> contained in <r2>?
 bool laik_range_within_range(const Laik_Range* r1, const Laik_Range* r2);
 

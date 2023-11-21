@@ -480,8 +480,9 @@ unsigned int unpack_lex(Laik_Mapping* m, Laik_Range* s,
 
 
 // create layout for lexicographical layout covering <n> ranges
-Laik_Layout* laik_new_layout_lex(int n, Laik_Range* ranges)
+Laik_Layout* laik_new_layout_lex(int n, Laik_Range* ranges, void* layout_data)
 {
+    (void) layout_data; // Surpress unused warnings
     int dims = ranges->space->dims;
     Laik_Layout_Lex* l = malloc(sizeof(Laik_Layout_Lex) + n * sizeof(Lex_Entry));
     if (!l) {

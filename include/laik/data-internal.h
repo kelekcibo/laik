@@ -118,6 +118,11 @@ struct _Laik_Data {
 
     // layout factory for generating layouts to use with mappings
     laik_layout_factory_t layout_factory;
+    // flag indicates which layout is being used
+    Laik_Use_Layout_t layout;
+
+    // can be set by application
+    void *layout_data;
 
     // can be set by backend
     void* backend_data;
