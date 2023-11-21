@@ -153,6 +153,7 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
 void copy_vector(Laik_Range* range,
                           Laik_Mapping* from, Laik_Mapping* to)
 {
+    printf("Calling copy_vector\n");
     Laik_Layout_Vector* fromLayout = laik_is_layout_vector(from->layout);
     Laik_Layout_Vector* toLayout = laik_is_layout_vector(to->layout);
     assert(fromLayout!=0);
@@ -200,6 +201,7 @@ void copy_vector(Laik_Range* range,
 unsigned int pack_vector(Laik_Mapping* m, Laik_Range* range,
                                   Laik_Index* idx, char* buf, unsigned int size)
 {
+    printf("Calling pack_vector\n");
     unsigned int elemsize = m->data->elemsize;
     Laik_Layout* layout = m->layout;
     int dims = m->layout->dims;
@@ -262,6 +264,7 @@ unsigned int pack_vector(Laik_Mapping* m, Laik_Range* range,
 unsigned int unpack_vector(Laik_Mapping* m, Laik_Range* range,
                                     Laik_Index* idx, char* buf, unsigned int size)
 {
+    printf("Calling unpack_vector\n");
     unsigned int elemsize = m->data->elemsize;
     Laik_Layout* layout = m->layout;
     int dims = m->layout->dims;
@@ -320,8 +323,8 @@ unsigned int unpack_vector(Laik_Mapping* m, Laik_Range* range,
 
 // create layout for compact vector layout covering 1 range
 Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void *layout_data)
-{
-    assert(n == 0); // This layout supports only 1 mapping
+{   
+    assert(n == 1); // This layout supports only 1 mapping
     int dims = range->space->dims;
     assert(dims == 1); // This layout supports only 1d spaces
 

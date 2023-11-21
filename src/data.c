@@ -699,11 +699,11 @@ static void initEmbeddedMapping(Laik_Mapping *toMap, Laik_Mapping *fromMap)
     Laik_Data *data = toMap->data;
     assert(data == fromMap->data);
 
-    if (data->layout == LAIK_Vector_Layout)
-    {
-        printf("ToMap\tfrom=%ld;to=%ld\n", toMap->requiredRange.from.i[0], toMap->requiredRange.to.i[0]);
-        printf("fromMap\tfrom=%ld;to=%ld\n", fromMap->requiredRange.from.i[0], fromMap->requiredRange.to.i[0]);
-    }
+    // if (data->layout == LAIK_Vector_Layout)
+    // {
+    //     printf("ToMap\tfrom=%ld;to=%ld\n", toMap->requiredRange.from.i[0], toMap->requiredRange.to.i[0]);
+    //     printf("fromMap\tfrom=%ld;to=%ld\n", fromMap->requiredRange.from.i[0], fromMap->requiredRange.to.i[0]);
+    // }
 
     assert(laik_range_within_range(&(toMap->requiredRange),
                                    &(fromMap->allocatedRange)));
@@ -723,7 +723,7 @@ static void initEmbeddedMapping(Laik_Mapping *toMap, Laik_Mapping *fromMap)
     toMap->base = toMap->start + off * data->elemsize;
     if (data->layout == LAIK_Vector_Layout)
     {
-        printf(" toMap->base: %p (off: %ld); fromMap->base: %p; new toMap->base: %p\n", toMap->base, off, fromMap->base, toMap->start);
+        // printf(" toMap->base: %p (off: %ld); fromMap->base: %p; new toMap->base: %p\n", toMap->base, off, fromMap->base, toMap->start);
         toMap->base = toMap->start; // We have local values at the beginning always, and external values at the end
     }
 }
@@ -968,11 +968,12 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
     }
 
     // TODO Debug the switch to A.ext
-    if (strncmp(d->name, "Blob 1", sizeof("Blob 1")) == 0 || strncmp(d->name, "Blob 0", sizeof("Blob 0")) == 0)
-    {
-        // printf("%s backend\n", inst->backend->name);
-        exit(1);
-    }
+    // if (strncmp(d->name, "Blob 1", sizeof("Blob 1")) == 0 || strncmp(d->name, "Blob 0", sizeof("Blob 0")) == 0)
+    // {
+    //     // printf("%s backend\n", inst->backend->name);
+    //     // exit(1);
+    // }
+    
     if (d->stat)
         laik_switchstat_addASeq(d->stat, as);
 
