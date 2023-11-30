@@ -448,15 +448,16 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
     if (d->layout == LAIK_Lex_Layout)
     {
         ranges = coveringRanges_lex_l(n, list, myid);
-        layout = laik_new_layout_lex(n, ranges, 0);
+        layout = (n > 0) ? laik_new_layout_lex(n, ranges, 0) : 0;
     }   
     else if (d->layout == LAIK_Vector_Layout)
     {
         // map will be init'ed in laik_new_layout_vector
         uint64_t map_size = 1; // minimum size should be 1
         ranges = coveringRanges_vector_l(list, myid, &map_size);
-        layout = laik_new_layout_vector(n, ranges, d->layout_data);
-  
+        // printf("map_size=%lu\n", map_size);
+        layout = (n > 0) ? laik_new_layout_vector(n, ranges, d->layout_data) : 0;
+
         // calculate Mapping, if local partitioning is active
         if (layout->count == laik_get_length_vector(layout))
             calculate_mapping(layout, list, map_size, myid);
@@ -466,7 +467,7 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
         // TODO: not implemented yet
     }
 
-
+  
     Laik_MappingList *ml = laik_mappinglist_new(d, n, layout);
 
     // printf("sn=%d;n=%d\n", sn, n);
@@ -737,14 +738,17 @@ static void initEmbeddedMapping(Laik_Mapping *toMap, Laik_Mapping *fromMap)
     toMap->allocator = fromMap->allocator;
     fromMap->allocator = 0;
 
-    // set <base> of embedded mapping according to required vs. allocated
-    uint64_t off = laik_offset(toMap->layout, toMap->layoutSection, &(toMap->requiredRange.from));
-    toMap->base = toMap->start + off * data->elemsize;
     if (data->layout == LAIK_Vector_Layout)
     {
         // printf(" toMap->base: %p (off: %ld); fromMap->base: %p; new toMap->base: %p\n", toMap->base, off, fromMap->base, toMap->start);
         toMap->base = toMap->start; // We have local values at the beginning always, and external values at the end
+        return;
     }
+
+    // set <base> of embedded mapping according to required vs. allocated
+    uint64_t off = laik_offset(toMap->layout, toMap->layoutSection, &(toMap->requiredRange.from));
+    toMap->base = toMap->start + off * data->elemsize;
+
 }
 
 // try to reuse already allocated memory from old mapping
@@ -1495,7 +1499,7 @@ void laik_switchto_partitioning(Laik_Data *d,
             return;
         }
     }
-
+  
     Laik_MappingList *toList = prepareMaps(d, toP);
     Laik_Transition *t = do_calc_transition(d->space,
                                             d->activePartitioning, toP,
@@ -1548,6 +1552,7 @@ Laik_Partitioning *laik_switchto_new_partitioning(Laik_Data *d, Laik_Group *g,
     laik_log(1, "switch data '%s' to new partitioning '%s'",
              d->name, p->name);
 
+ 
     laik_switchto_partitioning(d, p, flow, redOp);
 
     return p;

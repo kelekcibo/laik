@@ -24,30 +24,30 @@
 // this file implements a layout for 1d vectors
 
 // For calculating mapping for the sparse vector layout
-typedef struct _Laik_Intervall_Vector Laik_Intervall_Vector;
-struct _Laik_Intervall_Vector
+typedef struct _Laik_Interval_Vector Laik_Interval_Vector;
+struct _Laik_Interval_Vector
 {
-    uint64_t from;
-    uint64_t to; // including "from", but excluding "to"
+    int64_t from;
+    int64_t to; // including "from", but excluding "to"
 };
 
 typedef struct _Laik_Map_Vector Laik_Map_Vector;
 struct _Laik_Map_Vector
 {
     uint64_t size;                      // number of intervalls stored in the map
-    Laik_Intervall_Vector * intervalls; // All intervals are stored here
+    Laik_Interval_Vector * intervals; // All intervals are stored here
 
-    int lower_bound;                    // For checks in functions like offset, or section
-    int upper_bound;
+    int64_t lower_bound; // excluding
+    int64_t upper_bound; // excluding 
 };
 
 typedef struct _Laik_Layout_Vector Laik_Layout_Vector;
 struct _Laik_Layout_Vector {
     Laik_Layout h;
     int id;                                 // For debug purposes
-    uint64_t localLength;                   
+    int64_t localLength;                   
     uint64_t numberOfExternalValues;        // external values stored after localLength elements
-    Laik_Map_Vector globalToLocalMap;       // Mapping needed from global indexes to allocation indexes (offset in the allocated buffer by LAIK)
+    Laik_Map_Vector * globalToLocalMap;       // Mapping needed from global indexes to allocation indexes (offset in the allocated buffer by LAIK)
 };
 
 
@@ -89,8 +89,8 @@ int section_vector(Laik_Layout* l, Laik_Index* idx)
     Laik_Layout_Vector* lv = laik_is_layout_vector(l);
     assert(lv);
 
-    // TODO: How to test the upper bound
-    if(idx->i[0] >= lv->globalToLocalMap.lower_bound && idx->i[0] < lv->globalToLocalMap.upper_bound);
+    // Check if idx is in map // only local idx handled here and not properly... need to go trough intervals as it has gaps
+    if (idx->i[0] < lv->globalToLocalMap->upper_bound && idx->i[0] >= lv->globalToLocalMap->lower_bound)
         return 0;
 
     return -1; // not found
@@ -113,13 +113,27 @@ int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
     assert(n == 0);
     Laik_Layout_Vector *lv = laik_is_layout_vector(l);
     assert(lv);
+    Laik_Map_Vector * m = lv->globalToLocalMap;
+    assert(m);
 
-    int64_t off = idx->i[0] ;
-    printf("off");
-    // TODO: How to test the upper bound
-    assert(off >= 0);
+    // if(lv->id == 0)
+    // // printf("Calling offset_vector\n");
 
-    return off;
+    int64_t idx_val = idx->i[0];
+    Laik_Interval_Vector * intervals = m->intervals;
+    int64_t localOffset = 0;
+    for (uint64_t i = 0; i < m->size; i++)
+    {
+        if (idx_val >= intervals[i].from && idx_val < intervals[i].to)
+        {
+            localOffset += idx_val - intervals[i].from;
+            break; 
+        }
+        localOffset += intervals[i].to - intervals[i].from;
+    }
+    assert(localOffset >= 0 && localOffset < lv->localLength);
+
+    return localOffset;
 }
 
 
@@ -152,7 +166,7 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
     Laik_Layout_Vector *lv_old = laik_is_layout_vector(old);
     assert(lv_old);
     assert((n >= 0) && (n < l->map_count));
-    printf("LAIK %d\tCalling reuse_vector\n", lv_new->id);
+    // printf("LAIK %d\tCalling reuse_vector\n", lv_new->id);
 
     if (laik_log_begin(1)) {
         laik_log_append("reuse_vector: check reuse for map %d in %s",
@@ -180,7 +194,10 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
 
     // if new layout is layout for external partitioning, we do not calculate mapping, thus get mapping from local partitioning (old layout)
     if(l->count != lv_new->localLength)
+    {
         lv_new->globalToLocalMap = lv_old->globalToLocalMap;
+        // printf("Reusing map\n");
+    }
 
     return true;
 }
@@ -364,39 +381,39 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
     assert(lv);
     assert(map_size != 0);
 
-    Laik_Map_Vector *m = &(lv->globalToLocalMap);
+    Laik_Map_Vector *m = (Laik_Map_Vector *) malloc(sizeof(Laik_Map_Vector));
     m->size = map_size;
 
     // Allocate memory for <map_size> chunks
-    m->intervalls = (Laik_Intervall_Vector *) malloc(map_size * sizeof(Laik_Intervall_Vector));
+    m->intervals = (Laik_Interval_Vector *) malloc(map_size * sizeof(Laik_Interval_Vector));
 
-    uint64_t chunksInitialised = 1; // for testing correctness (minimum size is 1)
+    uint64_t chunksInitialised = 0; // for testing correctness (minimum size is 1)
     int mapNo = 0;                  // Sparse vector layout supports only one mapping
     Laik_Range* current_range;
     for (unsigned int o = list->off[myid]; o < list->off[myid + 1]; o++)
     {
         // range covering all task ranges for the map 0
         // set lower bound of map containing intervalls (it is in the first range, as ranges are sorted in ascending order)
-        m->lower_bound = current_range->from.i[0];
+        m->lower_bound = list->trange[o].range.from.i[0];
 
         // For calculating the number of needed map entries
         Laik_Range *startRangeOfInterval = &(list->trange[o].range); // store beginning range of a new intervall
         bool initialiseIntervall = false;
-
-        while ((o + 1 < list->off[myid + 1]) && (list->trange[o + 1].mapNo == mapNo))
+        unsigned int off = list->off[myid + 1];
+        while ((o + 1 < off) && (list->trange[o + 1].mapNo == mapNo))
         {
             o++;
             current_range = &(list->trange[o].range);
 
-            // check if current range is neighbour of previous range
-            if (list->trange[o-1].range.to.i[0] != current_range->from.i[0])
-                initialiseIntervall = true; // if not, initialise chunk/intervall
+            // check that current range is not neighbour of previous range or that it is the last iteration
+            if (list->trange[o - 1].range.to.i[0] != current_range->from.i[0] || !((o + 1 < off)))
+                initialiseIntervall = true; // if yes, initialise chunk/intervall
 
             if(initialiseIntervall)
             {
                 initialiseIntervall = false;
-                m->intervalls[chunksInitialised - 1].from = startRangeOfInterval->from.i[0];
-                m->intervalls[chunksInitialised - 1].to = list->trange[o - 1].range.to.i[0];
+                m->intervals[chunksInitialised].from = startRangeOfInterval->from.i[0];
+                m->intervals[chunksInitialised].to = list->trange[o - 1].range.to.i[0];
                 // start new interval
                 startRangeOfInterval = current_range;
                 // increase counter for chunks
@@ -406,17 +423,22 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
 
     }
 
-    // TODO: check if current_range is really the last range and therefore the upper bound.
-    m->upper_bound = current_range->to.i[0]; 
+    assert(chunksInitialised == map_size);
 
-    assert(chunksInitialised == map_size); // should be the same
+    // TODO: check if current_range is really the last range and therefore the upper bound.
+    m->upper_bound = current_range->to.i[0];
+   
+    // DEBUG
+    // if(lv->id == 1) 
+    //     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", chunksInitialised, m->upper_bound, m->lower_bound);
+
 
     // DEBUG
+    // if(lv->id == 1)
+    //     for (uint64_t i = 0; i < m->size; i++) 
+    //         printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervalls[i].from, m->intervalls[i].to);
 
-    for (uint64_t i = 0; i < m->size; i++)
-        printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervalls[i].from, m->intervalls[i].to);
-    
-    
+    lv->globalToLocalMap = m;
 
     return;
 }
