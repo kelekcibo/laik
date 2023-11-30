@@ -23,17 +23,36 @@
 
 // this file implements a layout for 1d vectors
 
+// For calculating mapping for the sparse vector layout
+typedef struct _Laik_Intervall_Vector Laik_Intervall_Vector;
+struct _Laik_Intervall_Vector
+{
+    uint64_t from;
+    uint64_t to; // including "from", but excluding "to"
+};
+
+typedef struct _Laik_Map_Vector Laik_Map_Vector;
+struct _Laik_Map_Vector
+{
+    uint64_t size;                      // number of intervalls stored in the map
+    Laik_Intervall_Vector * intervalls; // All intervals are stored here
+
+    int lower_bound;                    // For checks in functions like offset, or section
+    int upper_bound;
+};
+
 typedef struct _Laik_Layout_Vector Laik_Layout_Vector;
 struct _Laik_Layout_Vector {
     Laik_Layout h;
-    uint64_t localLength;            // Layout data specific to this custom layout << this equals *count* in Laik_Layout h
-    uint64_t numberOfExternalValues; // external values stored after localLength elements
-    int32_t offset;                  // offset into allocation buffer. Mapping under the hood, but application programmer needs to specify the offset for now
+    int id;                                 // For debug purposes
+    uint64_t localLength;                   
+    uint64_t numberOfExternalValues;        // external values stored after localLength elements
+    Laik_Map_Vector globalToLocalMap;       // Mapping needed from global indexes to allocation indexes (offset in the allocated buffer by LAIK)
 };
 
 
 //--------------------------------------------------------------
-// interface implementation of lexicographical layout
+// interface implementation of sparse vector layout
 //
 
 // helper for copy_vector/pack_vector: lexicographical traversal
@@ -45,7 +64,10 @@ bool next_idx(Laik_Range *range, Laik_Index *idx)
         return true;
     if (range->space->dims == 1)
         return false;
+
+    return false;
 }
+
 
 // forward decl
 static int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx);
@@ -68,7 +90,7 @@ int section_vector(Laik_Layout* l, Laik_Index* idx)
     assert(lv);
 
     // TODO: How to test the upper bound
-    if(idx->i[0] >= 0)
+    if(idx->i[0] >= lv->globalToLocalMap.lower_bound && idx->i[0] < lv->globalToLocalMap.upper_bound);
         return 0;
 
     return -1; // not found
@@ -88,11 +110,12 @@ int mapno_vector(Laik_Layout* l, int n)
 static
 int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
 {
+    assert(n == 0);
     Laik_Layout_Vector *lv = laik_is_layout_vector(l);
     assert(lv);
 
-    int64_t off = idx->i[0];
-
+    int64_t off = idx->i[0] ;
+    printf("off");
     // TODO: How to test the upper bound
     assert(off >= 0);
 
@@ -109,8 +132,8 @@ char* describe_vector(Laik_Layout* l)
     assert(lv);
 
     int o;
-    o = sprintf(s, "compact vector (%dd, %d maps, %lu localLength ",
-                1, l->map_count, lv->localLength);
+    o = sprintf(s, "sparse vector (%dd, %d maps, %lu localLength, %lu numberOfExternalValue in external partitioning, %ld count ",
+                l->dims, l->map_count, lv->localLength, lv->numberOfExternalValues, l->count);
 
 
     o += sprintf(s+o, ")");
@@ -118,6 +141,8 @@ char* describe_vector(Laik_Layout* l)
 
     return s;
 }
+
+static int print_id = 0;
 
 static
 bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
@@ -127,6 +152,7 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
     Laik_Layout_Vector *lv_old = laik_is_layout_vector(old);
     assert(lv_old);
     assert((n >= 0) && (n < l->map_count));
+    printf("LAIK %d\tCalling reuse_vector\n", lv_new->id);
 
     if (laik_log_begin(1)) {
         laik_log_append("reuse_vector: check reuse for map %d in %s",
@@ -134,17 +160,28 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
         laik_log_flush(" using map %d in old %s", nold, describe_vector(old));
     }
 
-   
+    // TODO Consider NumberOfExternalValues as well
     if (!(lv_new->localLength <= lv_old->localLength)) {
         // no, cannot reuse
+        laik_log(1, "reuse_vector: old map %d cannot be reused (length %lu -> %lu)",
+                 nold,
+                 lv_new->localLength,
+                 lv_old->localLength);
         return false;
     }
-    laik_log(1, "reuse_vector: old map %d can be reused (length %lu -> %lu)",
+    laik_log(1, "reuse_vector: old map %d can be reused (length/count %lu/%lu -> %lu/%lu)",
              nold,
              lv_new->localLength,
-             lv_old->localLength);
+             lv_new->h.count,
+             lv_old->localLength,
+             lv_old->h.count);
 
-    l->count = old->count; // TODO check if this is correct
+    // l->count = old->count; // TODO check if this is correct
+
+    // if new layout is layout for external partitioning, we do not calculate mapping, thus get mapping from local partitioning (old layout)
+    if(l->count != lv_new->localLength)
+        lv_new->globalToLocalMap = lv_old->globalToLocalMap;
+
     return true;
 }
 
@@ -215,7 +252,7 @@ unsigned int pack_vector(Laik_Mapping* m, Laik_Range* range,
     assert(laik_range_within_range(range, &(m->requiredRange)));
 
     if (laik_log_begin(1)) {
-        laik_log_append("        generic packing of range ");
+        laik_log_append("        vector packing of range ");
         laik_log_Range(range);
         laik_log_append(" (count %llu, elemsize %d) from mapping %p",
             laik_range_size(range), elemsize, m->start);
@@ -277,7 +314,7 @@ unsigned int unpack_vector(Laik_Mapping* m, Laik_Range* range,
     assert(laik_range_within_range(range, &(m->requiredRange)));
 
     if (laik_log_begin(1)) {
-        laik_log_append("        generic unpacking of range ");
+        laik_log_append("        vector unpacking of range ");
         laik_log_Range(range);
         laik_log_append(" (count %llu, elemsize %d) into mapping %p",
             laik_range_size(range), elemsize, m->start);
@@ -320,10 +357,73 @@ unsigned int unpack_vector(Laik_Mapping* m, Laik_Range* range,
     return count;
 }
 
+// calculate all mappings (done by LAIK automatically. Do not use in your application)
+void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, int myid)
+{
+    Laik_Layout_Vector *lv = laik_is_layout_vector(l);
+    assert(lv);
+    assert(map_size != 0);
+
+    Laik_Map_Vector *m = &(lv->globalToLocalMap);
+    m->size = map_size;
+
+    // Allocate memory for <map_size> chunks
+    m->intervalls = (Laik_Intervall_Vector *) malloc(map_size * sizeof(Laik_Intervall_Vector));
+
+    uint64_t chunksInitialised = 1; // for testing correctness (minimum size is 1)
+    int mapNo = 0;                  // Sparse vector layout supports only one mapping
+    Laik_Range* current_range;
+    for (unsigned int o = list->off[myid]; o < list->off[myid + 1]; o++)
+    {
+        // range covering all task ranges for the map 0
+        // set lower bound of map containing intervalls (it is in the first range, as ranges are sorted in ascending order)
+        m->lower_bound = current_range->from.i[0];
+
+        // For calculating the number of needed map entries
+        Laik_Range *startRangeOfInterval = &(list->trange[o].range); // store beginning range of a new intervall
+        bool initialiseIntervall = false;
+
+        while ((o + 1 < list->off[myid + 1]) && (list->trange[o + 1].mapNo == mapNo))
+        {
+            o++;
+            current_range = &(list->trange[o].range);
+
+            // check if current range is neighbour of previous range
+            if (list->trange[o-1].range.to.i[0] != current_range->from.i[0])
+                initialiseIntervall = true; // if not, initialise chunk/intervall
+
+            if(initialiseIntervall)
+            {
+                initialiseIntervall = false;
+                m->intervalls[chunksInitialised - 1].from = startRangeOfInterval->from.i[0];
+                m->intervalls[chunksInitialised - 1].to = list->trange[o - 1].range.to.i[0];
+                // start new interval
+                startRangeOfInterval = current_range;
+                // increase counter for chunks
+                chunksInitialised++;
+            }
+        }
+
+    }
+
+    // TODO: check if current_range is really the last range and therefore the upper bound.
+    m->upper_bound = current_range->to.i[0]; 
+
+    assert(chunksInitialised == map_size); // should be the same
+
+    // DEBUG
+
+    for (uint64_t i = 0; i < m->size; i++)
+        printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervalls[i].from, m->intervalls[i].to);
+    
+    
+
+    return;
+}
 
 // create layout for compact vector layout covering 1 range
-Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void *layout_data)
-{   
+Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data)
+{
     assert(n == 1); // This layout supports only 1 mapping
     int dims = range->space->dims;
     assert(dims == 1); // This layout supports only 1d spaces
@@ -333,7 +433,15 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void *layout_data)
         laik_panic("Out of memory allocating Laik_Layout_Vector object");
         exit(1); // not actually needed, laik_panic never returns
     }
-    // count calculated later
+
+    Laik_vector_data * vd = (Laik_vector_data *) layout_data;
+
+    lv->localLength = vd->localLength;
+    lv->numberOfExternalValues = vd->numberOfExternalValues;
+    lv->id = vd->id;
+
+    // printf("LAIK %d\tCalling laik_new_layout_vector\n", lv->id);
+
     laik_init_layout(&(lv->h), dims, n, laik_range_size(range),
                      section_vector,
                      mapno_vector,
@@ -344,6 +452,7 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void *layout_data)
                      unpack_vector,
                      copy_vector);
 
+    laik_log(1, "laik_new_layout_vector: New sparse vector layout has been created: %s)", describe_vector(&(lv->h)));
     return (Laik_Layout*) lv;
 }
 
@@ -355,3 +464,31 @@ uint64_t laik_get_length_vector(Laik_Layout *l)
 
     return lv->localLength;
 }
+
+uint64_t laik_get_numberOfExternalValues_vector(Laik_Layout *l)
+{
+    Laik_Layout_Vector *lv = laik_is_layout_vector(l);
+    assert(lv != 0);
+
+    return lv->numberOfExternalValues;
+}
+
+uint64_t laik_get_id_vector(Laik_Layout *l)
+{
+    Laik_Layout_Vector *lv = laik_is_layout_vector(l);
+    assert(lv != 0);
+
+    return lv->id;
+}
+
+// void laik_set_length_vector(Laik_Data *d, uint64_t localLength)
+// {
+//     Laik_Layout * l = laik_get_map(d, 0)->layout; // This layout makes use of only one mapping
+//     Laik_Layout_Vector *lv = laik_is_layout_vector(l);
+//     assert(lv != 0);
+
+//     lv->localLength = localLength;
+//     lv->numberOfExternalValues = l->count - localLength;
+//     return;
+// }
+

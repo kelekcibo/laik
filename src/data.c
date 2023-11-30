@@ -351,7 +351,8 @@ static Laik_Range *coveringRanges_lex_l(int n, Laik_RangeList *list, int myid)
 // helper for prepareMaps
 // alloc list of ranges required for mappings of a range list
 // this is for the vector layout
-static Laik_Range *coveringRanges_vector_l(Laik_RangeList *list, int myid)
+static 
+Laik_Range *coveringRanges_vector_l(Laik_RangeList *list, int myid, uint64_t * map_size)
 {
     // we have only one mapping in the compact vector layout
     // we support only 1D ranges in this layout
@@ -367,16 +368,27 @@ static Laik_Range *coveringRanges_vector_l(Laik_RangeList *list, int myid)
 
         // range covering all task ranges for the map 0
         *range = list->trange[o].range;
+        // For calculating the number of needed map entries
+        Laik_Range *previous_range = &(list->trange[o].range);
 
         while ((o + 1 < list->off[myid + 1]) && (list->trange[o + 1].mapNo == mapNo))
         {
             o++;
             laik_range_add(range, &(list->trange[o].range));
+            // if(myid == 0)
+                // printf("from=%ld;to=%ld\n", list->trange[o].range.from.i[0], list->trange[o].range.to.i[0]);
+
+
+            if (previous_range->to.i[0] != list->trange[o].range.from.i[0])
+                (*map_size)++;
+
+            previous_range = &(list->trange[o].range);
         }
 
         if (laik_log_begin(1))
         {
             laik_log_append("    mapNo %d: covering range ", mapNo);
+            laik_log_append("    %lu chunks were detected ", *map_size);
             laik_log_Range(range);
             laik_log_flush(", task ranges %d - %d\n", firstOff, o);
         }
@@ -431,22 +443,29 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
 
     // create layout
     Laik_Range *ranges;
+    Laik_Layout *layout;
 
     if (d->layout == LAIK_Lex_Layout)
+    {
         ranges = coveringRanges_lex_l(n, list, myid);
+        layout = laik_new_layout_lex(n, ranges, 0);
+    }   
     else if (d->layout == LAIK_Vector_Layout)
-        ranges = coveringRanges_vector_l(list, myid);
+    {
+        // map will be init'ed in laik_new_layout_vector
+        uint64_t map_size = 1; // minimum size should be 1
+        ranges = coveringRanges_vector_l(list, myid, &map_size);
+        layout = laik_new_layout_vector(n, ranges, d->layout_data);
+  
+        // calculate Mapping, if local partitioning is active
+        if (layout->count == laik_get_length_vector(layout))
+            calculate_mapping(layout, list, map_size, myid);
+    }
     else if (d->layout == LAIK_Sparse_Layout)
     {
         // TODO: not implemented yet
     }
 
-    if (d->layout == LAIK_Vector_Layout && p->partitioner == laik_All)
-    {
-        // exit(1);
-    }
-
-    Laik_Layout *layout = (n > 0) ? (d->layout_factory)(n, ranges, d->layout_data) : 0;
 
     Laik_MappingList *ml = laik_mappinglist_new(d, n, layout);
 
@@ -874,7 +893,6 @@ static Laik_ActionSeq *createTransASeq(Laik_Data *d, Laik_Transition *t,
                                        Laik_MappingList *fromList,
                                        Laik_MappingList *toList)
 {
-    // BYE
     // never create a sequence with an invalid transition
     assert(t != 0);
 
@@ -961,6 +979,7 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
             inst->profiling->timer_backend = laik_wtime();
         // let backend do send/recv/reduce actions
 
+        // printf("Bufsize as= %d\n", laik_aseq_bufsize(as));
         (inst->backend->exec)(as);
 
         if (inst->profiling->do_profiling)

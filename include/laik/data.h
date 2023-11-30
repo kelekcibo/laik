@@ -403,12 +403,24 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *ranges, void *layout_data
 // return length of vector in the given layout
 uint64_t laik_get_length_vector(Laik_Layout *l);
 
+// return numberOfExternalValues of vector in the given layout
+uint64_t laik_get_numberOfExternalValues_vector(Laik_Layout *l);
+
+// return offset of vector in the given layout
+uint64_t laik_get_offset_vector(Laik_Layout *l);
+
+// calculate all mappings (done by LAIK automatically. Do not use in your application)
+void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, int myid);
+
+// debug. delete me
+uint64_t laik_get_id_vector(Laik_Layout *l);
+
 typedef struct _Laik_vector_layout_data Laik_vector_data;
 struct _Laik_vector_layout_data
 {
+    int id;                         // for debug purposes
     uint64_t localLength;            // Layout data specific to this custom layout << this equals *count* in Laik_Layout h
     uint64_t numberOfExternalValues; // external values stored after localLength elements
-    int32_t offset;                  // offset into allocation buffer. Mapping under the hood, but application programmer needs to specify the offset for now
 };
 
 //----------------------------------
