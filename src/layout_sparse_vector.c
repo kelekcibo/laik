@@ -44,10 +44,11 @@ struct _Laik_Map_Vector
 typedef struct _Laik_Layout_Vector Laik_Layout_Vector;
 struct _Laik_Layout_Vector {
     Laik_Layout h;
-    int id;                                 // For debug purposes
-    int64_t localLength;                   
-    uint64_t numberOfExternalValues;        // external values stored after localLength elements
-    Laik_Map_Vector * globalToLocalMap;       // Mapping needed from global indexes to allocation indexes (offset in the allocated buffer by LAIK)
+    int id;                                   // For debug purposes
+    int64_t localLength;                      // length of sparse vector without external values  
+    uint64_t numberOfExternalValues;          // external values stored after localLength elements
+    uint64_t currentExternalVallue;           // Mapping for external indexes to allocation indexes (offset in the allocated buffer by LAIK)
+    Laik_Map_Vector * globalToLocalMap;       // Mapping needed from own global indexes to allocation indexes (offset in the allocated buffer by LAIK)
 };
 
 
@@ -105,7 +106,6 @@ int mapno_vector(Laik_Layout* l, int n)
     return n;
 }
 
-int global_ = 0;
 // return offset for <idx> in map <n> of this layout
 static
 int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
@@ -152,10 +152,12 @@ int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
     // localOffset = lv->localLength; // start at the end of local values
 
     // TODO calculate offset for external values
-    if(lv->id == 1)
-        printf("Need to map %ld\n", idx_val);
+    // if(lv->id == 1)
+    //     printf("Need to map %ld\n", idx_val);
+    if(lv->currentExternalVallue == lv->numberOfExternalValues)
+        lv->currentExternalVallue = 0;
 
-    return localOffset + global_++;
+    return localOffset + lv->currentExternalVallue++;
 }
 
 
@@ -479,6 +481,7 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
     lv->localLength = vd->localLength;
     lv->numberOfExternalValues = vd->numberOfExternalValues;
     lv->id = vd->id;
+    lv->currentExternalVallue = 0;
 
     // printf("LAIK %d\tCalling laik_new_layout_vector\n", lv->id);
 
