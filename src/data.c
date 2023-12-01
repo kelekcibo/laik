@@ -981,22 +981,14 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
         Laik_Instance *inst = d->space->inst;
         if (inst->profiling->do_profiling)
             inst->profiling->timer_backend = laik_wtime();
-        // let backend do send/recv/reduce actions
 
-        // printf("Bufsize as= %d\n", laik_aseq_bufsize(as));
+        // let backend do send/recv/reduce actions
         (inst->backend->exec)(as);
 
         if (inst->profiling->do_profiling)
             inst->profiling->time_backend += laik_wtime() - inst->profiling->timer_backend;
     }
 
-    // TODO Debug the switch to A.ext
-    // if (strncmp(d->name, "Blob 1", sizeof("Blob 1")) == 0 || strncmp(d->name, "Blob 0", sizeof("Blob 0")) == 0)
-    // {
-    //     // printf("%s backend\n", inst->backend->name);
-    //     // exit(1);
-    // }
-    
     if (d->stat)
         laik_switchstat_addASeq(d->stat, as);
 

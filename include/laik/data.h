@@ -414,6 +414,7 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
 
 // debug. delete me
 uint64_t laik_get_id_vector(Laik_Layout *l);
+void laik_print_local_Map(Laik_Layout *l, int id);
 
 typedef struct _Laik_vector_layout_data Laik_vector_data;
 struct _Laik_vector_layout_data
