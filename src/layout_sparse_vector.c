@@ -197,6 +197,8 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
     }
 
     // TODO Consider NumberOfExternalValues as well
+    // FIXME switching from local to external partitioning gives segfault currently, if LAik_data container starts with local partitioning
+    // Fix that. HEre we test localLength, but thats not enough. 
     if (!(lv_new->localLength <= lv_old->localLength)) {
         // no, cannot reuse
         laik_log(1, "reuse_vector: old map %d cannot be reused (length %lu -> %lu)",
