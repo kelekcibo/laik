@@ -977,12 +977,6 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
         doASeqCleanup = true;
     }
 
-    // if ((strncmp(d->name, "MG_Data xc71", sizeof("MG_Data xc71")) == 0))
-    // {
-    //     printf("LAIK %lu \t before exec\n", laik_get_id_vector(fromList->map[0].layout));
-    //     printf("LAIK %lu \t %s\n", laik_get_id_vector(fromList->map[0].layout), fromList->map[0].layout->describe(fromList->map[0].layout));
-    // }
-
     if (t->sendCount + t->recvCount + t->redCount > 0)
     {
 
@@ -997,14 +991,17 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
             inst->profiling->time_backend += laik_wtime() - inst->profiling->timer_backend;
     }
 
-    // if ((strncmp(d->name, "MG_Data xc71", sizeof("MG_Data xc71")) == 0))
-    //     printf("LAIK %lu \t after exec\n", laik_get_id_vector(fromList->map[0].layout));
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
+        // printf("LAIK %lu \t after exec\n", laik_get_id_vector(fromList->map[0].layout));
 
     if (d->stat)
         laik_switchstat_addASeq(d->stat, as);
 
     if (doASeqCleanup)
         laik_aseq_free(as);
+
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
+    //     printf("LAIK %lu \t after laik_aseq_free\n", laik_get_id_vector(fromList->map[0].layout));
 
     // local copy actions
     if (t->localCount > 0)
@@ -1503,13 +1500,13 @@ void laik_switchto_partitioning(Laik_Data *d,
         }
     }
 
-    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
     // {
     //     printf("LAIK %d \t before prepareMaps\n", laik_myid(toP->group));
     //     // exit(1);
     // }
     Laik_MappingList *toList = prepareMaps(d, toP);
-    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
     // {
     //     printf("LAIK %d \t before do_calc_transition\n", laik_myid(toP->group));
     //     // exit(1);
@@ -1517,8 +1514,13 @@ void laik_switchto_partitioning(Laik_Data *d,
     Laik_Transition *t = do_calc_transition(d->space,
                                             d->activePartitioning, toP,
                                             flow, redOp);
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
+    // {
+    //     printf("LAIK %d \t before doTransition\n", laik_myid(toP->group));
+    //     // exit(1);
+    // }
     doTransition(d, t, 0, d->activeMappings, toList);
-    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
     // {
     //     printf("LAIK %d \t after doTransition\n", laik_myid(toP->group));
     //     // exit(1);
