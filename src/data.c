@@ -263,6 +263,13 @@ void laik_data_set_layout_data(Laik_Data *d, void *layout_data)
     d->layout_data = layout_data;
 }
 
+void laik_data_free_layout_data(Laik_Data *d)
+{
+    free(d->layout_data);
+    d->layout_data = 0;
+}
+
+
 static void initMapping(Laik_Mapping *m, Laik_Data *d)
 {
     m->data = d;
@@ -408,6 +415,7 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
     int myid = laik_myid(p->group);
     if (myid == -1)
         return 0; // this task is not part of the task group
+
     assert(myid < p->group->size);
 
     // reserved and already allocated?
@@ -444,7 +452,6 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
     // create layout
     Laik_Range *ranges;
     Laik_Layout *layout;
-
     if (d->layout == LAIK_Lex_Layout)
     {
         ranges = coveringRanges_lex_l(n, list, myid);
@@ -457,17 +464,14 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
         ranges = coveringRanges_vector_l(list, myid, &map_size);
         // printf("map_size=%lu\n", map_size);
         layout = (n > 0) ? laik_new_layout_vector(n, ranges, d->layout_data) : 0;
-
         // calculate Mapping, if local partitioning is active
-        if (layout->count == laik_get_length_vector(layout))
+        if ((n > 0) && (layout->count == laik_get_length_vector(layout)))
             calculate_mapping(layout, list, map_size, myid);
     }
     else if (d->layout == LAIK_Sparse_Layout)
     {
         // TODO: not implemented yet
     }
-
-  
     Laik_MappingList *ml = laik_mappinglist_new(d, n, layout);
 
     // printf("sn=%d;n=%d\n", sn, n);
@@ -476,7 +480,7 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
         Laik_Mapping *m = &(ml->map[mapNo]);
         m->requiredRange = ranges[mapNo];
         m->count = laik_range_size(&(ranges[mapNo]));
-        // if(m->count > 100){
+        // if(m->count == 8192){
         //     printf("count=%ld\n", m->count);
         //     printf("requiredRange: from=%ld;to=%ld\n", m->requiredRange.from.i[0], m->requiredRange.to.i[0]);
         // }
@@ -719,14 +723,12 @@ static void initEmbeddedMapping(Laik_Mapping *toMap, Laik_Mapping *fromMap)
     Laik_Data *data = toMap->data;
     assert(data == fromMap->data);
 
-    // if (data->layout == LAIK_Vector_Layout)
-    // {
-    //     printf("ToMap\tfrom=%ld;to=%ld\n", toMap->requiredRange.from.i[0], toMap->requiredRange.to.i[0]);
-    //     printf("fromMap\tfrom=%ld;to=%ld\n", fromMap->requiredRange.from.i[0], fromMap->requiredRange.to.i[0]);
-    // }
-
-    assert(laik_range_within_range(&(toMap->requiredRange),
+    if (data->layout == LAIK_Vector_Layout)
+        assert(laik_range_size(&(toMap->requiredRange)) <= laik_range_size(&(fromMap->allocatedRange)));
+    else
+        assert(laik_range_within_range(&(toMap->requiredRange),
                                    &(fromMap->allocatedRange)));
+
 
     // take over allocation into new mapping descriptor
     toMap->start = fromMap->start;
@@ -975,6 +977,12 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
         doASeqCleanup = true;
     }
 
+    // if ((strncmp(d->name, "MG_Data xc71", sizeof("MG_Data xc71")) == 0))
+    // {
+    //     printf("LAIK %lu \t before exec\n", laik_get_id_vector(fromList->map[0].layout));
+    //     printf("LAIK %lu \t %s\n", laik_get_id_vector(fromList->map[0].layout), fromList->map[0].layout->describe(fromList->map[0].layout));
+    // }
+
     if (t->sendCount + t->recvCount + t->redCount > 0)
     {
 
@@ -988,6 +996,9 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
         if (inst->profiling->do_profiling)
             inst->profiling->time_backend += laik_wtime() - inst->profiling->timer_backend;
     }
+
+    // if ((strncmp(d->name, "MG_Data xc71", sizeof("MG_Data xc71")) == 0))
+    //     printf("LAIK %lu \t after exec\n", laik_get_id_vector(fromList->map[0].layout));
 
     if (d->stat)
         laik_switchstat_addASeq(d->stat, as);
@@ -1468,8 +1479,8 @@ void laik_switchto_partitioning(Laik_Data *d,
                                 Laik_Partitioning *toP, Laik_DataFlow flow,
                                 Laik_ReductionOperation redOp)
 {
-    // calculate actions to be done for switching
 
+    // calculate actions to be done for switching
     Laik_Group *toGroup = 0, *fromGroup = 0, *commonGroup = 0;
     if (d->activePartitioning)
     {
@@ -1491,14 +1502,27 @@ void laik_switchto_partitioning(Laik_Data *d,
             return;
         }
     }
-  
+
+    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // {
+    //     printf("LAIK %d \t before prepareMaps\n", laik_myid(toP->group));
+    //     // exit(1);
+    // }
     Laik_MappingList *toList = prepareMaps(d, toP);
+    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // {
+    //     printf("LAIK %d \t before do_calc_transition\n", laik_myid(toP->group));
+    //     // exit(1);
+    // }
     Laik_Transition *t = do_calc_transition(d->space,
                                             d->activePartitioning, toP,
                                             flow, redOp);
-
     doTransition(d, t, 0, d->activeMappings, toList);
-
+    // if ((strncmp(d->name, "x_ncol", sizeof("x_ncol")) == 0))
+    // {
+    //     printf("LAIK %d \t after doTransition\n", laik_myid(toP->group));
+    //     // exit(1);
+    // }
     // if we migrated to common group before, migrate back
     if (commonGroup)
     {

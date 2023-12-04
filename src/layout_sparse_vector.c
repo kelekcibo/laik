@@ -49,6 +49,7 @@ struct _Laik_Layout_Vector {
     uint64_t numberOfExternalValues;          // external values stored after localLength elements
     uint64_t currentExternalVallue;           // Mapping for external indexes to allocation indexes (offset in the allocated buffer by LAIK)
     Laik_Map_Vector * globalToLocalMap;       // Mapping needed from own global indexes to allocation indexes (offset in the allocated buffer by LAIK)
+    uint64_t allocatedRangeCount;          // quick solution for implementing reuse_vector
 };
 
 
@@ -140,20 +141,23 @@ int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
     // we calculated the offset for locally owned global index
     if(wasInLocalRange)
     {
+        // if (lv->localLength == 8192)
+        //     if (lv->id == 0)
+        //         printf("Need to map %ld to %ld\n", idx_val, localOffset);
         assert(localOffset >= 0 && localOffset < lv->localLength);
         return localOffset;
     }
+
+    // if a Laik_Data container does not receive external values at all, there went something wrong
+    if(lv->numberOfExternalValues == 0 && !wasInLocalRange)
+        assert(localOffset >= 0 && localOffset < lv->localLength); // will fail, localOffset will be euqal to lv->localLength
 
     // if <idx> is an external value, we need to calculate the correct offset
     // we have following layout: | Local values | external values |
     // Thus, we copy external values to the end of local values
 
-    localOffset = lv->localLength; // should have the value, if <idx> was not a locally owned idx
-    // localOffset = lv->localLength; // start at the end of local values
+    localOffset = lv->localLength; // offset starts there, if <idx> was not a locally owned idx
 
-    // TODO calculate offset for external values
-    // if(lv->id == 1)
-    //     printf("Need to map %ld\n", idx_val);
     if(lv->currentExternalVallue == lv->numberOfExternalValues)
         lv->currentExternalVallue = 0;
 
@@ -170,9 +174,8 @@ char* describe_vector(Laik_Layout* l)
     assert(lv);
 
     int o;
-    o = sprintf(s, "sparse vector (%dd, %d maps, %lu localLength, %lu numberOfExternalValue in external partitioning, %ld count ",
-                l->dims, l->map_count, lv->localLength, lv->numberOfExternalValues, l->count);
-
+    o = sprintf(s, "sparse vector (%dd, %d map, %lu localLength, %lu numberOfExternalValue in external partitioning, %ld count , %lu allocatedRangeCount",
+                l->dims, l->map_count, lv->localLength, lv->numberOfExternalValues, l->count, lv->allocatedRangeCount);
 
     o += sprintf(s+o, ")");
     assert(o < 200);
@@ -196,17 +199,24 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
         laik_log_flush(" using map %d in old %s", nold, describe_vector(old));
     }
 
-    // TODO Consider NumberOfExternalValues as well
-    // FIXME switching from local to external partitioning gives segfault currently, if LAik_data container starts with local partitioning
-    // Fix that. HEre we test localLength, but thats not enough. 
-    if (!(lv_new->localLength <= lv_old->localLength)) {
-        // no, cannot reuse
-        laik_log(1, "reuse_vector: old map %d cannot be reused (length %lu -> %lu)",
+    // TODO:This is a quick solution for testing reuse 
+    if (!(lv_new->allocatedRangeCount <= lv_old->allocatedRangeCount) || !(lv_new->localLength == lv_old->localLength)) {
+        // printf("reuse_vector: old map %d cannot be reused (allocatedRangeCount %lu -> %lu \t localLength %lu -> %lu)\n",
+        //          nold,
+        //          lv_new->allocatedRangeCount,
+        //          lv_old->allocatedRangeCount,
+        //          lv_new->localLength,
+        //          lv_old->localLength);
+
+        laik_log(1, "reuse_vector: old map %d cannot be reused (allocatedRangeCount %lu -> %lu \t localLength %lu -> %lu)\n",
                  nold,
+                 lv_new->allocatedRangeCount,
+                 lv_old->allocatedRangeCount,
                  lv_new->localLength,
                  lv_old->localLength);
         return false;
     }
+    
     laik_log(1, "reuse_vector: old map %d can be reused (length/count %lu/%lu -> %lu/%lu)",
              nold,
              lv_new->localLength,
@@ -223,15 +233,16 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
         // printf("Reusing map\n");
     }
 
+    // update allocatedRangeCount as mentioned in laik_new_vector_layout()
+    lv_new->allocatedRangeCount = lv_old->allocatedRangeCount;  
+
     return true;
 }
-
 
 // copy vector
 void copy_vector(Laik_Range* range,
                           Laik_Mapping* from, Laik_Mapping* to)
 {
-    printf("Calling copy_vector\n");
     Laik_Layout_Vector* fromLayout = laik_is_layout_vector(from->layout);
     Laik_Layout_Vector* toLayout = laik_is_layout_vector(to->layout);
     assert(fromLayout!=0);
@@ -469,6 +480,7 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
 Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data)
 {
     assert(n == 1); // This layout supports only 1 mapping
+    assert(layout_data != 0); // Need layout data
     int dims = range->space->dims;
     assert(dims == 1); // This layout supports only 1d spaces
 
@@ -484,6 +496,8 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
     lv->numberOfExternalValues = vd->numberOfExternalValues;
     lv->id = vd->id;
     lv->currentExternalVallue = 0;
+    lv->allocatedRangeCount = laik_range_size(range); // if we reuse, we need to update this value to the greater value
+
 
     // printf("LAIK %d\tCalling laik_new_layout_vector\n", lv->id);
 
@@ -497,6 +511,10 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
                      unpack_vector,
                      copy_vector);
 
+    // if (lv->localLength == 8192)
+    //     laik_print_local_Map2(&(lv->h), 0);
+    //     printf("LAIK %d \t laik_new_layout_vector: %s\n\n", lv->id, describe_vector(&(lv->h)));
+
     laik_log(1, "laik_new_layout_vector: New sparse vector layout has been created: %s)", describe_vector(&(lv->h)));
     return (Laik_Layout*) lv;
 }
@@ -505,7 +523,8 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
 uint64_t laik_get_length_vector(Laik_Layout *l)
 {
     Laik_Layout_Vector* lv = laik_is_layout_vector(l);
-    assert(lv != 0);
+    if(!lv)
+        return 0;
 
     return lv->localLength;
 }
@@ -538,7 +557,28 @@ uint64_t laik_get_id_vector(Laik_Layout *l)
 // }
 
 // DEBUG
-void laik_print_local_Map(Laik_Layout *l, int id)
+void laik_print_local_Map(Laik_Data *d, int id)
+{
+    Laik_Layout_Vector *lv = laik_is_layout_vector(laik_get_map(d, 0)->layout);
+    assert(lv != 0);
+
+    if (lv->id != id)
+        return;
+
+    // print
+    Laik_Map_Vector * m = lv->globalToLocalMap;
+    if(!m)
+    {
+        printf("No Map active\n");
+        return;
+    }
+    printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
+    for (uint64_t i = 0; i < m->size; i++)
+        printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
+    return;
+}
+
+void laik_print_local_Map2(Laik_Layout *l, int id)
 {
     Laik_Layout_Vector *lv = laik_is_layout_vector(l);
     assert(lv != 0);
@@ -547,7 +587,12 @@ void laik_print_local_Map(Laik_Layout *l, int id)
         return;
 
     // print
-    Laik_Map_Vector * m = lv->globalToLocalMap;
+    Laik_Map_Vector *m = lv->globalToLocalMap;
+    if (!m)
+    {
+        printf("No Map active\n");
+        return;
+    }
     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
     for (uint64_t i = 0; i < m->size; i++)
         printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);

@@ -115,6 +115,9 @@ void laik_data_set_layout_flag(Laik_Data *d, Laik_Use_Layout_t);
 // set layout_data, if a layout is used which needs extra data from the application
 void laik_data_set_layout_data(Laik_Data *d, void *layout_data);
 
+// free layout_data, if a layout is used which needs extra data from the application
+void laik_data_free_layout_data(Laik_Data *d);
+
 //
 // Reservations for data containers
 //
@@ -406,15 +409,16 @@ uint64_t laik_get_length_vector(Laik_Layout *l);
 // return numberOfExternalValues of vector in the given layout
 uint64_t laik_get_numberOfExternalValues_vector(Laik_Layout *l);
 
-// return offset of vector in the given layout
-uint64_t laik_get_offset_vector(Laik_Layout *l);
+// // return offset of vector in the given layout
+// uint64_t laik_get_offset_vector(Laik_Layout *l);
 
 // calculate all mappings (done by LAIK automatically. Do not use in your application)
 void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, int myid);
 
 // debug. delete me
 uint64_t laik_get_id_vector(Laik_Layout *l);
-void laik_print_local_Map(Laik_Layout *l, int id);
+void laik_print_local_Map(Laik_Data *d, int id);
+void laik_print_local_Map2(Laik_Layout *l, int id);
 
 typedef struct _Laik_vector_layout_data Laik_vector_data;
 struct _Laik_vector_layout_data
