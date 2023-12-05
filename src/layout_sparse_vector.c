@@ -203,13 +203,6 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
     bool vector_size_changed = lv_new->localLength != lv_old->localLength;  // do not reuse a vector, if localLength changed (due to repartitioning)
     if (!new_totalSize_fits || vector_size_changed)
     {
-        // printf("reuse_vector: old map %d cannot be reused (allocatedRangeCount %lu -> %lu \t localLength %lu -> %lu)\n",
-        //          nold,
-        //          lv_new->allocatedRangeCount,
-        //          lv_old->allocatedRangeCount,
-        //          lv_new->localLength,
-        //          lv_old->localLength);
-
         // if vector size is the same, then this means we switched from a local to external partitioning.
         // this means, that we need the Map from the local partitioning as it is not calculated for external partitioning
         if(!(vector_size_changed))
@@ -235,10 +228,7 @@ bool reuse_vector(Laik_Layout* l, int n, Laik_Layout* old, int nold)
 
     // if new layout is layout for external partitioning, we do not calculate mapping, thus get mapping from local partitioning (old layout)
     if((int64_t)l->count != lv_new->localLength)
-    {
         lv_new->globalToLocalMap = lv_old->globalToLocalMap;
-        // printf("Reusing map\n");
-    }
 
     // update allocatedRangeCount as mentioned in laik_new_vector_layout()
     lv_new->allocatedRangeCount = lv_old->allocatedRangeCount;  
@@ -452,7 +442,7 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
                 initialiseIntervall = true; // if yes, initialise chunk/intervall
 
             // check that we are not in the last iteration
-            if(!((o + 1 < off)))
+            if(!((o + 1 < off)) && !initialiseIntervall)
             {
                 // if yes, we need to initialize interval[].to differently
                 m->intervals[chunksInitialised].from = startRangeOfInterval->from.i[0];
@@ -470,11 +460,20 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
                 startRangeOfInterval = current_range;
                 // increase counter for chunks
                 chunksInitialised++;
+
+                // check that we are not in the last iteration
+                if (!(o + 1 < off))
+                {
+                    // if yes, we need to initialize interval[].to differently, if
+                    // current range is not neighbour of previous range
+                    m->intervals[chunksInitialised].from = current_range->from.i[0];
+                    m->intervals[chunksInitialised].to = current_range->to.i[0];
+                    // increase counter for chunks
+                    chunksInitialised++;
+                }
             }
         }
-
     }
-
     assert(chunksInitialised == map_size);
 
     m->upper_bound = current_range->to.i[0];
@@ -505,9 +504,6 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
     lv->currentExternalVallue = 0;
     lv->allocatedRangeCount = laik_range_size(range); // if we reuse, we need to update this value to the greater value
 
-
-    // printf("LAIK %d\tCalling laik_new_layout_vector\n", lv->id);
-
     laik_init_layout(&(lv->h), dims, n, laik_range_size(range),
                      section_vector,
                      mapno_vector,
@@ -517,10 +513,6 @@ Laik_Layout *laik_new_layout_vector(int n, Laik_Range *range, void * layout_data
                      pack_vector,
                      unpack_vector,
                      copy_vector);
-
-    // if (lv->localLength == 8192)
-    //     laik_print_local_Map2(&(lv->h), 0);
-    //     printf("LAIK %d \t laik_new_layout_vector: %s\n\n", lv->id, describe_vector(&(lv->h)));
 
     laik_log(1, "laik_new_layout_vector: New sparse vector layout has been created: %s)", describe_vector(&(lv->h)));
     return (Laik_Layout*) lv;
@@ -579,7 +571,7 @@ void laik_print_local_Map(Laik_Data *d, int id)
         printf("No Map active\n");
         return;
     }
-    printf("######## Mapping of %s\n", describe_vector(&(lv->h)));
+    printf("######## LAIK %d Mapping of %s\n", lv->id, describe_vector(&(lv->h)));
     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
     for (uint64_t i = 0; i < m->size; i++)
         printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
@@ -601,7 +593,7 @@ void laik_print_local_Map2(Laik_Layout *l, int id)
         printf("No Map active\n");
         return;
     }
-    printf("######## Mapping of %s\n", describe_vector(l));
+    printf("######## LAIK %d Mapping of %s\n", lv->id, describe_vector(l));
     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
     for (uint64_t i = 0; i < m->size; i++)
         printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
