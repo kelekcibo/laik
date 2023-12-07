@@ -34,7 +34,7 @@ struct _Laik_Interval_Vector
 typedef struct _Laik_Map_Vector Laik_Map_Vector;
 struct _Laik_Map_Vector
 {
-    uint64_t size;                      // number of intervalls stored in the map
+    uint64_t size;                      // number of intervals stored in the map
     Laik_Interval_Vector * intervals; // All intervals are stored here
 
     int64_t lower_bound; // including
@@ -141,16 +141,13 @@ int64_t offset_vector(Laik_Layout* l, int n, Laik_Index* idx)
     // we calculated the offset for locally owned global index
     if(wasInLocalRange)
     {
-        // if (lv->localLength == 8192)
-        //     if (lv->id == 0)
-        //         printf("Need to map %ld to %ld\n", idx_val, localOffset);
         assert(localOffset >= 0 && localOffset < lv->localLength);
         return localOffset;
     }
 
     // if a Laik_Data container does not receive external values at all, there went something wrong
     if(lv->numberOfExternalValues == 0 && !wasInLocalRange)
-        assert(localOffset >= 0 && localOffset < lv->localLength); // will fail, localOffset will be euqal to lv->localLength
+        laik_panic("A vector with no external values should not map a global index of an external value.");
 
     // if <idx> is an external value, we need to calculate the correct offset
     // we have following layout: | Local values | external values |
@@ -406,7 +403,26 @@ unsigned int unpack_vector(Laik_Mapping* m, Laik_Range* range,
     return count;
 }
 
-// calculate all mappings (done by LAIK automatically. Do not use in your application)
+/**
+ * @brief LAIK will automatically calculate the mapping for a vector.
+ *
+ * The mapping will be explained in regard to the HPCG Benchmark.
+ * We have a local partitioning and external partitioning and we are switching between them to communicate values.
+ * In order to eliminate the gaps in the memory, we provide this layout. This means we need to calculate the mapping of global/external indexes to local indexes.
+ * 
+ * Approach:
+ * Laik_Map_Vector map contains all global ranges/intervals, which are assigned to the process in the global problem. 
+ * In context of HPCG, it means the global rows assigned to process <i>, as process <i> updates the global vector at index <i> after each iteration.
+ * 
+ * When we have all global intervals, we can calculate the exact offset in the allocated buffer @see offset_vector().
+ * 
+ * We only calculate the mapping when the local partitioning is active. The external partitioning gets the mapping from the layout for the local partitioning in reuse_vector().
+ *
+ * @param l Sparse Vector Layout
+ * @param list All ranges this process owns in current active partitioning
+ * @param map_size number of intervals the mapping will have
+ * @param myid rank id
+ */
 void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, int myid)
 {
     Laik_Layout_Vector *lv = laik_is_layout_vector(l);
@@ -425,12 +441,12 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
     for (unsigned int o = list->off[myid]; o < list->off[myid + 1]; o++)
     {
         // range covering all task ranges for the map 0
-        // set lower bound of map containing intervalls (it is in the first range, as ranges are sorted in ascending order)
+        // set lower bound of map containing intervals (it is in the first range, as ranges are sorted in ascending order)
         m->lower_bound = list->trange[o].range.from.i[0];
 
         // For calculating the number of needed map entries
-        Laik_Range *startRangeOfInterval = &(list->trange[o].range); // store beginning range of a new intervall
-        bool initialiseIntervall = false;
+        Laik_Range *startRangeOfInterval = &(list->trange[o].range); // store beginning range of a new interval
+        bool initialiseInterval = false;
         unsigned int off = list->off[myid + 1];
         while ((o + 1 < off) && (list->trange[o + 1].mapNo == mapNo))
         {
@@ -439,10 +455,10 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
 
             // check that current range is not neighbour of previous range
             if (list->trange[o - 1].range.to.i[0] != current_range->from.i[0])
-                initialiseIntervall = true; // if yes, initialise chunk/intervall
+                initialiseInterval = true; // if yes, initialise chunk/interval
 
             // check that we are not in the last iteration
-            if(!((o + 1 < off)) && !initialiseIntervall)
+            if(!((o + 1 < off)) && !initialiseInterval)
             {
                 // if yes, we need to initialize interval[].to differently
                 m->intervals[chunksInitialised].from = startRangeOfInterval->from.i[0];
@@ -451,9 +467,9 @@ void calculate_mapping(Laik_Layout *l, Laik_RangeList *list, uint64_t map_size, 
                 break;
             }
 
-            if(initialiseIntervall)
+            if(initialiseInterval)
             {
-                initialiseIntervall = false;
+                initialiseInterval = false;
                 m->intervals[chunksInitialised].from = startRangeOfInterval->from.i[0];
                 m->intervals[chunksInitialised].to = list->trange[o - 1].range.to.i[0];
                 // start new interval
@@ -574,7 +590,7 @@ void laik_print_local_Map(Laik_Data *d, int id)
     printf("######## LAIK %d Mapping of %s\n", lv->id, describe_vector(&(lv->h)));
     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
     for (uint64_t i = 0; i < m->size; i++)
-        printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
+        printf("Interval %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
     return;
 }
 
@@ -596,6 +612,6 @@ void laik_print_local_Map2(Laik_Layout *l, int id)
     printf("######## LAIK %d Mapping of %s\n", lv->id, describe_vector(l));
     printf("chunks %lu\tupper bound %lu\tlower bound %lu\n", m->size, m->upper_bound, m->lower_bound);
     for (uint64_t i = 0; i < m->size; i++)
-        printf("Intervall %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
+        printf("Interval %ld\t[%ld;%ld[\n", i, m->intervals[i].from, m->intervals[i].to);
     return;
 }

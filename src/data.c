@@ -382,9 +382,6 @@ Laik_Range *coveringRanges_vector_l(Laik_RangeList *list, int myid, uint64_t * m
         {
             o++;
             laik_range_add(range, &(list->trange[o].range));
-            // if(myid == 0)
-                // printf("from=%ld;to=%ld\n", list->trange[o].range.from.i[0], list->trange[o].range.to.i[0]);
-
 
             if (previous_range->to.i[0] != list->trange[o].range.from.i[0])
                 (*map_size)++;
@@ -462,7 +459,6 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
         // map will be init'ed in laik_new_layout_vector
         uint64_t map_size = 1; // minimum size should be 1
         ranges = coveringRanges_vector_l(list, myid, &map_size);
-        // printf("map_size=%lu\n", map_size);
         layout = (n > 0) ? laik_new_layout_vector(n, ranges, d->layout_data) : 0;
         // calculate Mapping, if local partitioning is active
         if ((n > 0) && (layout->count == laik_get_length_vector(layout)))
@@ -472,18 +468,14 @@ static Laik_MappingList *prepareMaps(Laik_Data *d, Laik_Partitioning *p)
     {
         // TODO: not implemented yet
     }
+
     Laik_MappingList *ml = laik_mappinglist_new(d, n, layout);
 
-    // printf("sn=%d;n=%d\n", sn, n);
     for (int mapNo = 0; mapNo < n; mapNo++)
     {
         Laik_Mapping *m = &(ml->map[mapNo]);
         m->requiredRange = ranges[mapNo];
         m->count = laik_range_size(&(ranges[mapNo]));
-        // if(m->count == 8192){
-        //     printf("count=%ld\n", m->count);
-        //     printf("requiredRange: from=%ld;to=%ld\n", m->requiredRange.from.i[0], m->requiredRange.to.i[0]);
-        // }
         m->layout = layout;       // all maps use same layout
         m->layoutSection = mapNo; // but different sections of it
 
@@ -742,7 +734,6 @@ static void initEmbeddedMapping(Laik_Mapping *toMap, Laik_Mapping *fromMap)
 
     if (data->layout == LAIK_Vector_Layout)
     {
-        // printf(" toMap->base: %p (off: %ld); fromMap->base: %p; new toMap->base: %p\n", toMap->base, off, fromMap->base, toMap->start);
         toMap->base = toMap->start; // We have local values at the beginning always, and external values at the end
         return;
     }
@@ -991,17 +982,11 @@ static void doTransition(Laik_Data *d, Laik_Transition *t, Laik_ActionSeq *as,
             inst->profiling->time_backend += laik_wtime() - inst->profiling->timer_backend;
     }
 
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-        // printf("LAIK %lu \t after exec\n", laik_get_id_vector(fromList->map[0].layout));
-
     if (d->stat)
         laik_switchstat_addASeq(d->stat, as);
 
     if (doASeqCleanup)
         laik_aseq_free(as);
-
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-    //     printf("LAIK %lu \t after laik_aseq_free\n", laik_get_id_vector(fromList->map[0].layout));
 
     // local copy actions
     if (t->localCount > 0)
@@ -1500,31 +1485,12 @@ void laik_switchto_partitioning(Laik_Data *d,
         }
     }
 
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-    // {
-    //     printf("LAIK %d \t before prepareMaps\n", laik_myid(toP->group));
-    //     // exit(1);
-    // }
     Laik_MappingList *toList = prepareMaps(d, toP);
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-    // {
-    //     printf("LAIK %d \t before do_calc_transition\n", laik_myid(toP->group));
-    //     // exit(1);
-    // }
     Laik_Transition *t = do_calc_transition(d->space,
                                             d->activePartitioning, toP,
                                             flow, redOp);
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-    // {
-    //     printf("LAIK %d \t before doTransition\n", laik_myid(toP->group));
-    //     // exit(1);
-    // }
     doTransition(d, t, 0, d->activeMappings, toList);
-    // if ((strncmp(d->name, "Abcdef", sizeof("Abcdef")) == 0))
-    // {
-    //     printf("LAIK %d \t after doTransition\n", laik_myid(toP->group));
-    //     // exit(1);
-    // }
+
     // if we migrated to common group before, migrate back
     if (commonGroup)
     {
